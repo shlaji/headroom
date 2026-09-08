@@ -273,3 +273,6 @@ uv.lock
 .tokensave
 
 .codebase-memory/
+.claude
+.codex
+.omo
