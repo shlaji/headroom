@@ -4257,12 +4257,12 @@ def create_app(config: ProxyConfig | None = None) -> FastAPI:
     @app.get("/health")
     async def health(request: Request):
         await _check_upstream()
-        # /health echoes upstream API URLs + backend config (the `config`
-        # block). That is operational detail an external scanner should not
-        # see, so include it only for loopback callers; network callers get the
-        # same body as /readyz (status + checks, no config). /livez and /readyz
-        # remain the unauthenticated probes for orchestration health.
-        payload = _health_payload(include_config=_request_is_loopback(request))
+        payload = _health_payload(
+            include_config=_request_can_view_dashboard_metadata(
+                request,
+                trusted_dashboard_client_cidrs,
+            )
+        )
         return JSONResponse(status_code=200, content=payload)
 
     # Loopback-only debug introspection (Unit 5). A remote IP gets 404 —
@@ -4397,7 +4397,7 @@ def create_app(config: ProxyConfig | None = None) -> FastAPI:
                 return
         _require_same_origin(request)
 
-    @app.get("/admin/upstream", dependencies=[Depends(_require_loopback)])
+    @app.get("/admin/upstream", dependencies=[Depends(_require_loopback_or_trusted_dashboard_client)])
     async def get_upstream():
         """Current Anthropic upstream + cc-switch reconciler state (loopback-only).
 
@@ -4412,7 +4412,7 @@ def create_app(config: ProxyConfig | None = None) -> FastAPI:
             "captured_upstream": getattr(_cc_reconciler, "current_upstream", None),
         }
 
-    @app.get("/debug/tasks", dependencies=[Depends(_require_loopback)])
+    @app.get("/debug/tasks", dependencies=[Depends(_require_loopback_or_trusted_dashboard_client)])
     async def debug_tasks(stack: bool = False):
         """Enumerate running asyncio tasks.
 
@@ -4427,13 +4427,13 @@ def create_app(config: ProxyConfig | None = None) -> FastAPI:
             content=_collect_tasks(ws_registry, with_stack_depth=stack),
         )
 
-    @app.get("/debug/ws-sessions", dependencies=[Depends(_require_loopback)])
+    @app.get("/debug/ws-sessions", dependencies=[Depends(_require_loopback_or_trusted_dashboard_client)])
     async def debug_ws_sessions():
         ws_registry = getattr(proxy, "ws_sessions", None)
         snapshot = ws_registry.snapshot() if ws_registry is not None else []
         return JSONResponse(status_code=200, content=snapshot)
 
-    @app.get("/debug/warmup", dependencies=[Depends(_require_loopback)])
+    @app.get("/debug/warmup", dependencies=[Depends(_require_loopback_or_trusted_dashboard_client)])
     async def debug_warmup():
         # Promote a deferred Kompress slot from live runtime state before we
         # serialize. Without this the registry keeps reporting the startup
@@ -4451,7 +4451,10 @@ def create_app(config: ProxyConfig | None = None) -> FastAPI:
 
     @app.post(
         "/admin/runtime-env",
-        dependencies=[Depends(_require_loopback), Depends(_require_same_origin)],
+        dependencies=[
+            Depends(_require_loopback_or_trusted_dashboard_client),
+            Depends(_require_same_origin_or_trusted_dashboard_client),
+        ],
     )
     async def admin_runtime_env(request: Request):
         """Hot-reload live env knobs (the output-shaper family, the ast-grep
@@ -4573,7 +4576,6 @@ def create_app(config: ProxyConfig | None = None) -> FastAPI:
         """Serve the Headroom dashboard UI."""
         return get_dashboard_html(licensed=_dashboard_licensed)
 
-    # --- Dashboard settings API (loopback-gated, registry-validated) ---------
     # Read/write the curated HEADROOM_* knobs the settings GUI manages. Writes
     # reuse the same loopback guard as the /admin and /debug endpoints and only
     # ever touch keys in the settings_store registry allowlist. All curated
@@ -5533,7 +5535,10 @@ def create_app(config: ProxyConfig | None = None) -> FastAPI:
 
     @app.post(
         "/stats/reset",
-        dependencies=[Depends(_require_loopback), Depends(_require_same_origin)],
+        dependencies=[
+            Depends(_require_loopback_or_trusted_dashboard_client),
+            Depends(_require_same_origin_or_trusted_dashboard_client),
+        ],
     )
     async def stats_reset():
         """Reset in-memory proxy stats for local test/debug isolation."""
@@ -5562,7 +5567,10 @@ def create_app(config: ProxyConfig | None = None) -> FastAPI:
 
         return proxy.metrics.savings_tracker.history_response(history_mode=history_mode)
 
-    @app.get("/transformations/feed", dependencies=[Depends(_require_loopback)])
+    @app.get(
+        "/transformations/feed",
+        dependencies=[Depends(_require_loopback_or_trusted_dashboard_client)],
+    )
     async def transformations_feed(limit: int = 20, include_messages: bool = True):
         """Get recent message transformations for the live feed.
 
@@ -5661,7 +5669,7 @@ def create_app(config: ProxyConfig | None = None) -> FastAPI:
         )
 
     # Debug endpoints
-    @app.get("/debug/memory", dependencies=[Depends(_require_loopback)])
+    @app.get("/debug/memory", dependencies=[Depends(_require_loopback_or_trusted_dashboard_client)])
     async def debug_memory():
         """Get detailed memory usage statistics.
 
@@ -5686,7 +5694,10 @@ def create_app(config: ProxyConfig | None = None) -> FastAPI:
 
     @app.post(
         "/cache/clear",
-        dependencies=[Depends(_require_loopback), Depends(_require_same_origin)],
+        dependencies=[
+            Depends(_require_loopback_or_trusted_dashboard_client),
+            Depends(_require_same_origin_or_trusted_dashboard_client),
+        ],
     )
     async def clear_cache():
         """Clear the response cache.
@@ -5705,7 +5716,10 @@ def create_app(config: ProxyConfig | None = None) -> FastAPI:
     # CCR (Compress-Cache-Retrieve) endpoints
     @app.post(
         "/v1/retrieve",
-        dependencies=[Depends(_require_loopback), Depends(_require_same_origin)],
+        dependencies=[
+            Depends(_require_loopback_or_trusted_dashboard_client),
+            Depends(_require_same_origin_or_trusted_dashboard_client),
+        ],
     )
     async def ccr_retrieve(request: Request):
         """Retrieve original content from CCR compression cache.
@@ -5754,7 +5768,10 @@ def create_app(config: ProxyConfig | None = None) -> FastAPI:
             ),
         )
 
-    @app.get("/v1/retrieve/stats", dependencies=[Depends(_require_loopback)])
+    @app.get(
+        "/v1/retrieve/stats",
+        dependencies=[Depends(_require_loopback_or_trusted_dashboard_client)],
+    )
     async def ccr_stats():
         """Get CCR compression store statistics."""
         store = get_compression_store()
@@ -5775,7 +5792,7 @@ def create_app(config: ProxyConfig | None = None) -> FastAPI:
             ],
         }
 
-    @app.get("/v1/feedback", dependencies=[Depends(_require_loopback)])
+    @app.get("/v1/feedback", dependencies=[Depends(_require_loopback_or_trusted_dashboard_client)])
     async def ccr_feedback():
         """Get CCR feedback loop statistics and learned patterns.
 
@@ -5812,7 +5829,10 @@ def create_app(config: ProxyConfig | None = None) -> FastAPI:
             },
         }
 
-    @app.get("/v1/feedback/{tool_name}", dependencies=[Depends(_require_loopback)])
+    @app.get(
+        "/v1/feedback/{tool_name}",
+        dependencies=[Depends(_require_loopback_or_trusted_dashboard_client)],
+    )
     async def ccr_feedback_for_tool(tool_name: str):
         """Get compression hints for a specific tool.
 
@@ -5849,7 +5869,7 @@ def create_app(config: ProxyConfig | None = None) -> FastAPI:
         }
 
     # Telemetry endpoints (Data Flywheel)
-    @app.get("/v1/telemetry", dependencies=[Depends(_require_loopback)])
+    @app.get("/v1/telemetry", dependencies=[Depends(_require_loopback_or_trusted_dashboard_client)])
     async def telemetry_stats():
         """Get telemetry statistics for the data flywheel.
 
@@ -5872,7 +5892,10 @@ def create_app(config: ProxyConfig | None = None) -> FastAPI:
         telemetry = get_telemetry_collector()
         return telemetry.get_stats()
 
-    @app.get("/v1/telemetry/export", dependencies=[Depends(_require_loopback)])
+    @app.get(
+        "/v1/telemetry/export",
+        dependencies=[Depends(_require_loopback_or_trusted_dashboard_client)],
+    )
     async def telemetry_export():
         """Export full telemetry data for aggregation.
 
@@ -5890,7 +5913,10 @@ def create_app(config: ProxyConfig | None = None) -> FastAPI:
 
     @app.post(
         "/v1/telemetry/import",
-        dependencies=[Depends(_require_loopback), Depends(_require_same_origin)],
+        dependencies=[
+            Depends(_require_loopback_or_trusted_dashboard_client),
+            Depends(_require_same_origin_or_trusted_dashboard_client),
+        ],
     )
     async def telemetry_import(request: Request):
         """Import telemetry data from another source.
@@ -5905,7 +5931,10 @@ def create_app(config: ProxyConfig | None = None) -> FastAPI:
         telemetry.import_stats(data)
         return {"status": "imported", "current_stats": telemetry.get_stats()}
 
-    @app.get("/v1/telemetry/tools", dependencies=[Depends(_require_loopback)])
+    @app.get(
+        "/v1/telemetry/tools",
+        dependencies=[Depends(_require_loopback_or_trusted_dashboard_client)],
+    )
     async def telemetry_tools():
         """Get telemetry statistics for all tracked tool signatures.
 
@@ -5921,7 +5950,10 @@ def create_app(config: ProxyConfig | None = None) -> FastAPI:
             "tools": {sig_hash: stats.to_dict() for sig_hash, stats in all_stats.items()},
         }
 
-    @app.get("/v1/telemetry/tools/{signature_hash}", dependencies=[Depends(_require_loopback)])
+    @app.get(
+        "/v1/telemetry/tools/{signature_hash}",
+        dependencies=[Depends(_require_loopback_or_trusted_dashboard_client)],
+    )
     async def telemetry_tool_detail(signature_hash: str):
         """Get detailed telemetry for a specific tool signature.
 
@@ -5943,7 +5975,7 @@ def create_app(config: ProxyConfig | None = None) -> FastAPI:
         }
 
     # TOIN (Tool Output Intelligence Network) endpoints
-    @app.get("/v1/toin/stats", dependencies=[Depends(_require_loopback)])
+    @app.get("/v1/toin/stats", dependencies=[Depends(_require_loopback_or_trusted_dashboard_client)])
     async def toin_stats():
         """Get overall TOIN statistics.
 
@@ -5961,7 +5993,10 @@ def create_app(config: ProxyConfig | None = None) -> FastAPI:
         toin = get_toin()
         return toin.get_stats()
 
-    @app.get("/v1/toin/patterns", dependencies=[Depends(_require_loopback)])
+    @app.get(
+        "/v1/toin/patterns",
+        dependencies=[Depends(_require_loopback_or_trusted_dashboard_client)],
+    )
     async def toin_patterns(limit: int = 20):
         """List TOIN patterns with most samples.
 
@@ -6016,7 +6051,10 @@ def create_app(config: ProxyConfig | None = None) -> FastAPI:
 
         return patterns_list[:limit]
 
-    @app.get("/v1/toin/pattern/{hash_prefix:path}", dependencies=[Depends(_require_loopback)])
+    @app.get(
+        "/v1/toin/pattern/{hash_prefix:path}",
+        dependencies=[Depends(_require_loopback_or_trusted_dashboard_client)],
+    )
     async def toin_pattern_detail(hash_prefix: str):
         """Get detailed TOIN pattern info by the listed identifier or a unique prefix.
 
@@ -6056,7 +6094,10 @@ def create_app(config: ProxyConfig | None = None) -> FastAPI:
             status_code=404, detail=f"No TOIN pattern found with hash starting with: {hash_prefix}"
         )
 
-    @app.get("/v1/retrieve/{hash_key}", dependencies=[Depends(_require_loopback)])
+    @app.get(
+        "/v1/retrieve/{hash_key}",
+        dependencies=[Depends(_require_loopback_or_trusted_dashboard_client)],
+    )
     async def ccr_retrieve_get(hash_key: str):
         """GET version of CCR retrieve for easier testing."""
         store = get_compression_store()
@@ -6090,7 +6131,10 @@ def create_app(config: ProxyConfig | None = None) -> FastAPI:
     # CCR Tool Call Handler - for agent frameworks to call when LLM uses headroom_retrieve
     @app.post(
         "/v1/retrieve/tool_call",
-        dependencies=[Depends(_require_loopback), Depends(_require_same_origin)],
+        dependencies=[
+            Depends(_require_loopback_or_trusted_dashboard_client),
+            Depends(_require_same_origin_or_trusted_dashboard_client),
+        ],
     )
     async def ccr_handle_tool_call(request: Request):
         """Handle a CCR tool call from an LLM response.
