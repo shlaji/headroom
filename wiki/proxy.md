@@ -77,6 +77,7 @@ When configured, Headroom emits OTLP traces for the shared compression pipeline 
 | `--code-aware` / `--no-code-aware` | disabled | Enable or disable AST-based code compression. Requires `headroom-ai[code]` (env: HEADROOM_CODE_AWARE_ENABLED=1 to enable) |
 | `--anthropic-api-url` | `https://api.anthropic.com` | Custom Anthropic API URL endpoint |
 | `--openai-api-url` | `https://api.openai.com` | Custom OpenAI API URL endpoint |
+| `HEADROOM_FORCE_OPENAI_TARGET=1` | disabled | Ignore per-request OpenAI upstream overrides and use `OPENAI_TARGET_API_URL` / `--openai-api-url`; hot-syncs when `headroom wrap` reuses a local proxy |
 | `--anthropic-extra-headers` | unset | JSON object of extra headers merged into (and overriding) forwarded Anthropic requests, e.g. `'{"Api-Key": "..."}'` |
 | `--openai-extra-headers` | unset | JSON object of extra headers merged into (and overriding) forwarded OpenAI requests |
 

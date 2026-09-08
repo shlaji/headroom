@@ -1384,6 +1384,7 @@ def proxy(
         anthropic_extra_headers=resolved_anthropic_extra_headers,
         openai_extra_headers=resolved_openai_extra_headers,
         openai_api_url=provider_api_overrides.openai,
+        force_openai_target=_get_env_bool("HEADROOM_FORCE_OPENAI_TARGET", False),
         provider_name=provider_name,
         gemini_api_url=provider_api_overrides.gemini,
         cloudcode_api_url=provider_api_overrides.cloudcode,

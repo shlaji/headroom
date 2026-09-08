@@ -58,6 +58,11 @@ class Knob:
 # hot-reloadable and visible in /health. Keep this list to genuinely live knobs
 # (see the scope rule in the module docstring).
 RUNTIME_ENV_KNOBS: tuple[Knob, ...] = (
+    Knob(
+        "HEADROOM_FORCE_OPENAI_TARGET",
+        "bool",
+        "Force OpenAI requests to use the configured target URL.",
+    ),
     Knob("HEADROOM_OUTPUT_SHAPER", "bool", "Master switch for output-token shaping."),
     Knob(
         "HEADROOM_VERBOSITY_LEVEL", "int", "Verbosity steering level 0-4 (unset = learned/default)."

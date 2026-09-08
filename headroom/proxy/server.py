@@ -3827,6 +3827,7 @@ def create_app(config: ProxyConfig | None = None) -> FastAPI:
                 "code_graph": config.code_graph_watcher,
                 "anthropic_api_url": config.anthropic_api_url,
                 "openai_api_url": config.openai_api_url,
+                "force_openai_target": config.force_openai_target,
                 "gemini_api_url": config.gemini_api_url,
                 "cloudcode_api_url": config.cloudcode_api_url,
                 "vertex_api_url": config.vertex_api_url,
@@ -6388,6 +6389,7 @@ def _proxy_config_from_env() -> ProxyConfig:
         host=_get_env_str("HEADROOM_HOST", "127.0.0.1"),
         port=_get_env_int("HEADROOM_PORT", 8787),
         openai_api_url=os.environ.get("OPENAI_TARGET_API_URL"),
+        force_openai_target=_get_env_bool("HEADROOM_FORCE_OPENAI_TARGET", False),
         anthropic_api_url=os.environ.get("ANTHROPIC_TARGET_API_URL"),
         anthropic_buffered_request_timeout_seconds=_get_env_int(
             "HEADROOM_ANTHROPIC_BUFFERED_REQUEST_TIMEOUT_SECONDS",
@@ -7215,6 +7217,7 @@ if __name__ == "__main__":
         host=_get_env_str("HEADROOM_HOST", args.host),
         port=_get_env_int("HEADROOM_PORT", args.port),
         openai_api_url=_get_env_str("OPENAI_TARGET_API_URL", args.openai_api_url),
+        force_openai_target=_get_env_bool("HEADROOM_FORCE_OPENAI_TARGET", False),
         anthropic_api_url=_get_env_str("ANTHROPIC_TARGET_API_URL", args.anthropic_api_url),
         anthropic_buffered_request_timeout_seconds=_get_env_int(
             "HEADROOM_ANTHROPIC_BUFFERED_REQUEST_TIMEOUT_SECONDS",

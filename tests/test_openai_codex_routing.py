@@ -454,6 +454,35 @@ def test_handle_openai_responses_routes_chatgpt_auth_to_backend_api(monkeypatch)
     assert response.status_code == 200
 
 
+def test_handle_openai_responses_force_target_overrides_chatgpt_routing(monkeypatch):
+    token = _jwt(
+        {
+            "https://api.openai.com/auth": {
+                "chatgpt_account_id": "acct-from-jwt",
+            }
+        }
+    )
+    request = _build_request(
+        {"model": "gpt-5.4", "input": "hello"},
+        {
+            "Authorization": f"Bearer {token}",
+            "x-headroom-base-url": "https://gateway.example",
+        },
+    )
+    handler = _DummyOpenAIHandler()
+    handler.config.force_openai_target = True
+
+    monkeypatch.setattr("headroom.tokenizers.get_tokenizer", lambda model: _DummyTokenizer())
+
+    response = anyio.run(handler.handle_openai_responses, request)
+
+    assert response.status_code == 200
+    assert handler.captured_request is not None
+    _method, url, headers, _body = handler.captured_request
+    assert url == "https://api.openai.com/v1/responses"
+    assert "ChatGPT-Account-ID" not in headers
+
+
 def test_handle_openai_responses_strips_codex_lite_header_upstream(monkeypatch):
     # OpenAI rejects newer Codex models when the client-only lite header leaks
     # upstream. The HTTP POST path must drop it like the WS handler does, while

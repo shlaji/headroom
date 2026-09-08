@@ -2061,6 +2061,8 @@ class OpenAIHandlerMixin:
         Otherwise falls back to the configured ``OPENAI_API_URL``
         (``OPENAI_TARGET_API_URL``).
         """
+        if self._force_openai_target_enabled():
+            return self.OPENAI_API_URL
         custom = _resolve_openai_upstream_base(request.headers)
         if custom is not None:
             return custom
@@ -2081,6 +2083,14 @@ class OpenAIHandlerMixin:
         if _is_xai_upstream(upstream_base_url):
             return None
         return self.config.openai_extra_headers
+
+    def _force_openai_target_enabled(self) -> bool:
+        from headroom.proxy import runtime_env
+
+        raw = runtime_env.getenv("HEADROOM_FORCE_OPENAI_TARGET")
+        if raw is not None:
+            return raw.strip().lower() in ("1", "true", "yes", "on")
+        return bool(getattr(getattr(self, "config", None), "force_openai_target", False))
 
     @staticmethod
     def _strict_previous_turn_frozen_count(
@@ -3645,7 +3655,10 @@ class OpenAIHandlerMixin:
         original_client_messages = snapshot_original_messages(
             messages, hooks=self.config.hooks, extensions=self.pipeline_extensions
         )
-        custom_upstream_base_url = _resolve_openai_upstream_base(request.headers)
+        force_openai_target = self._force_openai_target_enabled()
+        custom_upstream_base_url = (
+            None if force_openai_target else _resolve_openai_upstream_base(request.headers)
+        )
         upstream_base_url = self._resolve_openai_upstream(request)
         handler_path_suffix = _resolve_openai_chat_handler_path(
             upstream_base_url,
@@ -3794,7 +3807,9 @@ class OpenAIHandlerMixin:
             stripped_count=_pre_strip_count_chat,
             request_id=request_id,
         )
-        custom_upstream_base_url = _resolve_openai_upstream_base(request.headers)
+        upstream_base_url = (
+            None if force_openai_target else _resolve_openai_upstream_base(request.headers)
+        )
         handler_path = (
             _resolve_openai_handler_path(
                 request.headers,
@@ -6151,7 +6166,13 @@ class OpenAIHandlerMixin:
             stripped_count=_pre_strip_count_resp,
             request_id=request_id,
         )
-        headers, is_chatgpt_auth = _resolve_codex_routing_headers(headers)
+        if self._force_openai_target_enabled():
+            headers = {
+                key: value for key, value in headers.items() if key.lower() != "chatgpt-account-id"
+            }
+            is_chatgpt_auth = False
+        else:
+            headers, is_chatgpt_auth = _resolve_codex_routing_headers(headers)
         if is_chatgpt_auth:
             client = "codex"
         codex_project = None
@@ -6514,9 +6535,15 @@ class OpenAIHandlerMixin:
 
         # Route to correct endpoint based on auth mode.
         # ChatGPT session auth (codex login) uses chatgpt.com, not api.openai.com.
-        if is_chatgpt_auth:
+        force_openai_target = self._force_openai_target_enabled()
+        if is_chatgpt_auth and not force_openai_target:
             url = codex_responses_http_url()
         else:
+            upstream_base_url = (
+                None
+                if force_openai_target
+                else _resolve_openai_upstream_base(request.headers)
+            )
             handler_path = (
                 _resolve_openai_handler_path(request.headers, handler_path=_OPENAI_RESPONSES_PATH)
                 if custom_upstream_base_url is not None
@@ -7563,7 +7590,15 @@ class OpenAIHandlerMixin:
             request_id=request_id,
         )
 
-        upstream_headers, is_chatgpt_auth = _resolve_codex_routing_headers(upstream_headers)
+        if self._force_openai_target_enabled():
+            upstream_headers = {
+                key: value
+                for key, value in upstream_headers.items()
+                if key.lower() != "chatgpt-account-id"
+            }
+            is_chatgpt_auth = False
+        else:
+            upstream_headers, is_chatgpt_auth = _resolve_codex_routing_headers(upstream_headers)
         memory_client = (
             "codex" if is_chatgpt_auth else (None if codex_client_was_stamped else raw_client)
         )
@@ -10308,7 +10343,10 @@ class OpenAIHandlerMixin:
                     fallback_usage[i] += value
 
         # Route to correct endpoint based on auth mode
-        is_chatgpt_fallback = has_chatgpt_account_header(upstream_headers)
+        is_chatgpt_fallback = (
+            not self._force_openai_target_enabled()
+            and has_chatgpt_account_header(upstream_headers)
+        )
         if is_chatgpt_fallback:
             http_url = codex_responses_http_url()
         else:

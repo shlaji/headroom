@@ -19,6 +19,8 @@ The chat/responses call sites are covered end to end in
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import pytest
 
 fastapi = pytest.importorskip("fastapi")
@@ -56,9 +58,29 @@ def _stub_proxy(fallback_url: str) -> OpenAIHandlerMixin:
     )()
 
 
+def _stub_proxy_with_force(fallback_url: str, force: bool) -> OpenAIHandlerMixin:
+    proxy = _stub_proxy(fallback_url)
+    proxy.config = SimpleNamespace(force_openai_target=force)
+    return proxy
+
+
 def test_header_overrides_configured_url() -> None:
     proxy = _stub_proxy("https://api.openai.test")
     # The transport sends the upstream origin (no /v1 path).
+    request = _FakeRequest({"x-headroom-base-url": "https://gateway.example"})
+
+    assert proxy._resolve_openai_upstream(request) == "https://gateway.example"
+
+
+def test_force_openai_target_ignores_request_header() -> None:
+    proxy = _stub_proxy_with_force("https://api.openai.test", True)
+    request = _FakeRequest({"x-headroom-base-url": "https://gateway.example"})
+
+    assert proxy._resolve_openai_upstream(request) == "https://api.openai.test"
+
+
+def test_force_openai_target_disabled_preserves_request_header_override() -> None:
+    proxy = _stub_proxy_with_force("https://api.openai.test", False)
     request = _FakeRequest({"x-headroom-base-url": "https://gateway.example"})
 
     assert proxy._resolve_openai_upstream(request) == "https://gateway.example"

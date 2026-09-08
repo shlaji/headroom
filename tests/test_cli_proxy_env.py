@@ -511,6 +511,37 @@ class TestCLIProxyEnvVars:
         assert result.exit_code == 0, result.output
         assert captured_config["config"].openai_api_url == "http://my-vllm:4000"
 
+    def test_force_openai_target_from_env(self, runner):
+        """HEADROOM_FORCE_OPENAI_TARGET enables the OpenAI-only override."""
+        captured_config = {}
+
+        def mock_run_server(config, **kwargs):
+            captured_config["config"] = config
+
+        with patch("headroom.proxy.server.run_server", mock_run_server):
+            result = runner.invoke(
+                main,
+                ["proxy"],
+                env={"HEADROOM_FORCE_OPENAI_TARGET": "1"},
+                catch_exceptions=False,
+            )
+
+        assert result.exit_code == 0, result.output
+        assert captured_config["config"].force_openai_target is True
+
+    def test_force_openai_target_defaults_to_false(self, runner):
+        """The OpenAI-only override remains disabled by default."""
+        captured_config = {}
+
+        def mock_run_server(config, **kwargs):
+            captured_config["config"] = config
+
+        with patch("headroom.proxy.server.run_server", mock_run_server):
+            result = runner.invoke(main, ["proxy"], catch_exceptions=False)
+
+        assert result.exit_code == 0, result.output
+        assert captured_config["config"].force_openai_target is False
+
     def test_gemini_target_api_url_from_env(self, runner):
         """GEMINI_TARGET_API_URL env var should be passed to ProxyConfig."""
         captured_config = {}

@@ -157,6 +157,7 @@ class ProxyConfig:
     rollout: RolloutSnapshot | None = None
     anthropic_api_url: str | None = None  # Custom Anthropic API URL override
     openai_api_url: str | None = None  # Custom OpenAI API URL override
+    force_openai_target: bool = False  # Ignore per-request OpenAI upstream overrides
     # Display label for the OpenAI-compatible upstream (dashboard/stats only).
     # Overrides hostname detection from ``openai_api_url``; the internal
     # provider stays ``openai`` so pricing/format keys are unaffected.
