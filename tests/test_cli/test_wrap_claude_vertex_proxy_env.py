@@ -155,6 +155,21 @@ def test_wrap_claude_plain_mode_api_key_auth_skips_remote_control_warning(
     assert "Remote Control" not in output
 
 
+def test_wrap_claude_remote_proxy_does_not_stamp_local_selfheal_port(
+    runner: CliRunner, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    captured, _output = _invoke_wrap_claude(
+        runner,
+        monkeypatch,
+        env={"HEADROOM_REMOTE_PROXY_URL": "https://proxy.example/root"},
+        extra_args=("--project-settings",),
+    )
+
+    assert captured["ensure_args"][0] == 8787
+    assert captured["write_base_url_args"] == ("https://proxy.example/root",)
+    assert captured["write_base_url_kwargs"]["port"] is None
+
+
 def test_wrap_claude_rejects_conflicting_auth_before_proxy_mutation(
     runner: CliRunner, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:

@@ -11,13 +11,14 @@ from pathlib import Path
 
 from headroom._subprocess import run
 from headroom.mcp_registry.install import DEFAULT_PROXY_URL
+from headroom.proxy.project_policy import resolve_proxy_root
 
 from .config import HEADROOM_OPENCODE_PLUGIN, headroom_provider_entry
 
 
-def proxy_base_url(port: int) -> str:
-    """Return the local proxy base URL used by OpenCode integrations."""
-    return f"http://127.0.0.1:{port}/v1"
+def proxy_base_url(port: int, *, environ: Mapping[str, str] | None = None) -> str:
+    """Return the proxy base URL used by OpenCode integrations."""
+    return f"{resolve_proxy_root(port, environ)}/v1"
 
 
 # OpenCode 2.x subcommands. Of these only the interactive ones (the root TUI,
@@ -157,6 +158,7 @@ def build_opencode_config_content(
     port: int,
     include_mcp: bool = True,
     include_plugin: bool = True,
+    environ: Mapping[str, str] | None = None,
 ) -> dict[str, object]:
     """Build JSON payload for ``OPENCODE_CONFIG_CONTENT``.
 
@@ -181,23 +183,24 @@ def build_opencode_config_content(
     ponytail: config-level ``options.baseURL`` is reliable where the env-var
     override (``ANTHROPIC_BASE_URL``) is not — verified against opencode 1.17.
     """
-    base_url = proxy_base_url(port)
+    proxy_root = resolve_proxy_root(port, environ)
+    base_url = f"{proxy_root}/v1"
     config: dict[str, object] = {
         "provider": {
             "anthropic": {"options": {"baseURL": base_url}},
             "openai": {"options": {"baseURL": base_url}},
-            "headroom": headroom_provider_entry(port),
+            "headroom": headroom_provider_entry(port, environ=environ),
         }
     }
     if include_mcp:
-        proxy_url = f"http://127.0.0.1:{port}"
+        mcp_proxy_url = proxy_root
         mcp_entry: dict[str, object] = {
             "type": "local",
             "command": ["headroom", "mcp", "serve"],
             "enabled": True,
         }
-        if proxy_url != DEFAULT_PROXY_URL:
-            mcp_entry["environment"] = {"HEADROOM_PROXY_URL": proxy_url}
+        if mcp_proxy_url != DEFAULT_PROXY_URL:
+            mcp_entry["environment"] = {"HEADROOM_PROXY_URL": mcp_proxy_url}
         config["mcp"] = {
             "headroom": mcp_entry,
         }
@@ -231,18 +234,19 @@ def build_launch_env(
     layer able to send a header. Without it, disk-verify stays ``UNKNOWN``,
     same as Cursor.
     """
-    env = dict(environ or os.environ)
+    env = dict(os.environ if environ is None else environ)
 
     config_content = build_opencode_config_content(
         port=port,
         include_mcp=include_mcp,
         include_plugin=include_plugin,
+        environ=env,
     )
     env["OPENCODE_CONFIG_CONTENT"] = json.dumps(config_content, separators=(",", ":"))
 
     display = ["OPENCODE_CONFIG_CONTENT={provider: headroom}"]
     if "plugin" in config_content:
-        env["HEADROOM_PROXY_URL"] = f"http://127.0.0.1:{port}"
+        env["HEADROOM_PROXY_URL"] = resolve_proxy_root(port, env)
         if session_token:
             env["HEADROOM_OPENCODE_SESSION_TOKEN"] = session_token
         display.append(f"plugin={HEADROOM_OPENCODE_PLUGIN}")
