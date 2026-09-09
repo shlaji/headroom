@@ -194,11 +194,12 @@ export function createOpenCodeEnvironment(source, proxyOrigin, pluginPath) {
 // 更重的系统级代理或 provider 配置重写。
 function routedFetch(originalFetch, state) {
   return function remoteProxyFetch(input, init) {
-    const request = new Request(input, init);
-    const route = createRoute(new URL(request.url), state.proxyOrigin);
+    const url = input instanceof Request ? input.url : input;
+    const route = createRoute(new URL(url), state.proxyOrigin);
     if (route === undefined) {
       return Reflect.apply(originalFetch, globalThis, [input, init]);
     }
+    const request = new Request(input, init);
     const headers = createRoutedHeaders(request.headers, route, state.project);
     const routedRequest = new Request(route.url, request);
     return Reflect.apply(originalFetch, globalThis, [new Request(routedRequest, { headers })]);
@@ -265,7 +266,6 @@ function proxyRequestOptions(parts, route, project = undefined) {
     protocol: route.url.protocol,
   };
   delete options.agent;
-  delete options.auth;
   delete options.createConnection;
   delete options.host;
   delete options.href;

@@ -414,6 +414,57 @@ test("fetch routes an external request through the capture proxy", async () => {
   await close(capture.server);
 });
 
+for (const directTarget of ["loopback", "proxy"]) {
+  test(`fetch preserves a Request body when calling ${directTarget} directly`, async (t) => {
+    const capture = startCaptureServer();
+    const origin = await listen(capture.server);
+    const uninstall = installTransportHook({
+      preloadUrl,
+      proxyOrigin: directTarget === "proxy" ? origin : "https://proxy.example",
+    });
+    t.after(async () => {
+      uninstall();
+      await close(capture.server);
+    });
+    const request = new Request(`${origin}/local`, { method: "POST", body: "hello" });
+
+    const response = await fetch(request);
+
+    assert.equal(response.status, 200);
+    await response.text();
+    assert.equal(capture.captures[0].body, "hello");
+    assert.equal(capture.captures[0].headers["x-headroom-base-url"], undefined);
+  });
+}
+
+for (const [name, url, options, expectedAuth] of [
+  ["URL credentials", "http://alice:secret@api.example/models", {}, "Basic YWxpY2U6c2VjcmV0"],
+  ["auth option", "http://api.example/models", { auth: "alice:secret" }, "Basic YWxpY2U6c2VjcmV0"],
+  ["explicit header", "http://alice:secret@api.example/models", {
+    headers: { Authorization: "Bearer explicit" },
+  }, "Bearer explicit"],
+]) {
+  test(`http.get preserves ${name} through the proxy`, async (t) => {
+    const capture = startCaptureServer();
+    const proxyOrigin = await listen(capture.server);
+    const uninstall = installTransportHook({ preloadUrl, proxyOrigin });
+    t.after(async () => {
+      uninstall();
+      await close(capture.server);
+    });
+
+    await new Promise((resolve, reject) => {
+      httpGet(url, options, (response) => {
+        response.resume();
+        response.once("end", resolve);
+      }).once("error", reject);
+    });
+
+    assert.equal(capture.captures[0].headers.authorization, expectedAuth);
+    assert.equal(capture.captures[0].headers["x-headroom-base-url"], "http://api.example");
+  });
+}
+
 test("http.get routes external options without mutating headers", async () => {
   const capture = startCaptureServer();
   const proxyOrigin = await listen(capture.server);
